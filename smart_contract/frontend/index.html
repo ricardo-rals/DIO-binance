@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DASI Gov - DAO de Governança</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏛️ DASI Gov</h1>
+            <p class="subtitle">Governança Estudantil Descentralizada</p>
+            <div style="margin-top: 15px;">
+                <a href="cadastro.html" class="btn btn-secondary" style="text-decoration: none; display: inline-block; margin: 5px;">
+                    📝 Cadastro
+                </a>
+                <a href="admin.html" class="btn btn-secondary" style="text-decoration: none; display: inline-block; margin: 5px;">
+                    ⚙️ Admin
+                </a>
+            </div>
+        </header>
+
+        <!-- Seção de Conexão -->
+        <section class="card" id="connection-section">
+            <h2>Conectar Carteira</h2>
+            <div class="connection-info">
+                <p id="account-display">Não conectado</p>
+                <button id="connect-btn" class="btn btn-primary">Conectar MetaMask</button>
+                <button id="disconnect-btn" class="btn btn-secondary" style="display: none;">Desconectar</button>
+            </div>
+            <div id="token-balance" class="balance-display" style="display: none;">
+                <p><strong>Saldo de $DASI:</strong> <span id="balance-amount">0</span></p>
+            </div>
+        </section>
+
+        <!-- Seção de Propostas -->
+        <section class="card" id="proposals-section" style="display: none;">
+            <h2>Propostas</h2>
+            
+            <!-- Criar Nova Proposta -->
+            <div class="create-proposal">
+                <h3>Criar Nova Proposta</h3>
+                <div class="proposal-type-selector" id="proposal-type-selector">
+                    <label>
+                        <input type="radio" name="proposal-type" value="simple" checked>
+                        Proposta Simples (A Favor/Contra/Abster)
+                    </label>
+                    <label id="multi-option-label" style="display: none;">
+                        <input type="radio" name="proposal-type" value="multi">
+                        Votação com Múltiplas Opções (Chapas/Pessoas) - Apenas Presidentes
+                    </label>
+                </div>
+                <textarea id="proposal-description" placeholder="Descreva sua proposta aqui..." rows="4"></textarea>
+                
+                <!-- Opções para proposta com múltiplas opções -->
+                <div id="multi-options-container" style="display: none;">
+                    <h4>Opções de Votação (Chapas/Pessoas):</h4>
+                    <div id="options-list">
+                        <div class="option-input">
+                            <input type="text" class="option-field" placeholder="Nome da Chapa/Pessoa 1" required>
+                            <button type="button" class="btn btn-danger remove-option-btn" onclick="this.parentElement.remove()" style="display: none;">Remover</button>
+                        </div>
+                        <div class="option-input">
+                            <input type="text" class="option-field" placeholder="Nome da Chapa/Pessoa 2" required>
+                            <button type="button" class="btn btn-danger remove-option-btn" onclick="this.parentElement.remove()">Remover</button>
+                        </div>
+                    </div>
+                    <button type="button" id="add-option-btn" class="btn btn-secondary">+ Adicionar Mais Opção</button>
+                    <p style="font-size: 0.9em; color: #718096; margin-top: 10px;">
+                        <strong>Nota:</strong> A opção "Nulo" será adicionada automaticamente na votação.
+                    </p>
+                </div>
+                
+                <button id="create-proposal-btn" class="btn btn-primary">Criar Proposta</button>
+            </div>
+
+            <!-- Lista de Propostas -->
+            <div class="proposals-list">
+                <h3>Propostas Ativas</h3>
+                <div id="proposals-container">
+                    <p class="loading">Carregando propostas...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Seção de Informações -->
+        <section class="card" id="info-section" style="display: none;">
+            <h2>Informações da DAO</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <strong>Quórum:</strong>
+                    <span id="quorum-info">-</span>
+                </div>
+                <div class="info-item">
+                    <strong>Período de Votação:</strong>
+                    <span id="voting-period-info">-</span>
+                </div>
+                <div class="info-item">
+                    <strong>Total de Propostas:</strong>
+                    <span id="total-proposals">-</span>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Modal de Votação -->
+    <div id="vote-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Votar na Proposta</h2>
+            <div id="proposal-details"></div>
+            <div class="vote-options">
+                <button class="btn btn-success" onclick="castVote(1)">👍 A Favor</button>
+                <button class="btn btn-danger" onclick="castVote(2)">👎 Contra</button>
+                <button class="btn btn-secondary" onclick="castVote(3)">🤷 Abster</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <script src="session.js"></script>
+    <script src="config.js"></script>
+    <script src="access-control.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+

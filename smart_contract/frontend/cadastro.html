@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cadastro - DASI Gov</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏛️ DASI Gov</h1>
+            <p class="subtitle">Cadastro de Estudante</p>
+        </header>
+
+        <!-- Informações de Conexão -->
+        <section class="card" id="connection-section">
+            <div class="connection-info">
+                <div id="account-display">Não conectado</div>
+                <button id="connect-wallet-btn" class="btn btn-primary">Conectar Carteira</button>
+                <button id="disconnect-wallet-btn" class="btn btn-secondary" style="display: none;">Desconectar</button>
+            </div>
+            <div id="token-balance" class="balance-display" style="display: none;">
+                <strong>Seus Tokens DASI:</strong> <span id="balance-amount">0</span>
+            </div>
+        </section>
+
+        <!-- Formulário de Cadastro -->
+        <section class="card" id="cadastro-section">
+            <h2>📝 Cadastro de Estudante</h2>
+            
+            <div class="cadastro-info" style="background: #e6fffa; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #38b2ac;">
+                <h3>Como funciona:</h3>
+                <ol style="margin-left: 20px; line-height: 1.8;">
+                    <li>Preencha seus dados (matrícula, nome, email)</li>
+                    <li>Conecte sua carteira MetaMask</li>
+                    <li>Assine uma mensagem para provar que você controla a carteira</li>
+                    <li>Aguarde a verificação e distribuição de tokens</li>
+                </ol>
+                <p style="margin-top: 15px; font-size: 0.9em; color: #718096;">
+                    <strong>⚠️ Importante:</strong> Você deve criar sua própria carteira MetaMask. 
+                    Não compartilhe sua seed phrase com ninguém!
+                </p>
+            </div>
+
+            <form id="cadastro-form">
+                <div class="form-group">
+                    <label for="matricula">Matrícula *</label>
+                    <input type="text" id="matricula" placeholder="Ex: 2024001" required>
+                    <small style="color: #718096; font-size: 0.9em;">Sua matrícula na universidade</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="nome">Nome Completo *</label>
+                    <input type="text" id="nome" placeholder="Seu nome completo" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email (Opcional)</label>
+                    <input type="email" id="email" placeholder="seu@email.com">
+                    <small style="color: #718096; font-size: 0.9em;">Para receber notificações</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="wallet-address">Endereço da Carteira *</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="wallet-address" placeholder="0x..." readonly style="flex: 1;">
+                        <button type="button" id="fill-address-btn" class="btn btn-secondary">Preencher Automaticamente</button>
+                    </div>
+                    <small style="color: #718096; font-size: 0.9em;">
+                        Seu endereço será preenchido automaticamente ao conectar a carteira
+                    </small>
+                </div>
+
+                <div id="signature-section" style="display: none; margin-top: 20px; padding: 15px; background: #f7fafc; border-radius: 8px;">
+                    <h4>🔐 Verificação de Assinatura</h4>
+                    <p style="font-size: 0.9em; color: #718096; margin-bottom: 15px;">
+                        Para completar o cadastro, você precisa assinar uma mensagem que prova que você controla esta carteira.
+                    </p>
+                    <div id="message-to-sign" style="background: white; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 0.9em; margin-bottom: 15px; word-break: break-all;">
+                        Mensagem será gerada após preencher os dados...
+                    </div>
+                    <button type="button" id="sign-message-btn" class="btn btn-primary">Assinar Mensagem</button>
+                    <div id="signature-status" style="margin-top: 10px; font-size: 0.9em;"></div>
+                </div>
+
+                <div id="cadastro-status" style="margin-top: 20px; padding: 15px; border-radius: 8px; display: none;"></div>
+
+                <button type="submit" id="submit-cadastro-btn" class="btn btn-primary" style="margin-top: 20px; width: 100%;" disabled>
+                    Enviar Cadastro
+                </button>
+            </form>
+        </section>
+
+        <!-- Status do Cadastro -->
+        <section class="card" id="status-section" style="display: none;">
+            <h2>📊 Status do Cadastro</h2>
+            <div id="cadastro-status-info">
+                <p class="loading">Carregando...</p>
+            </div>
+        </section>
+
+        <!-- Navegação -->
+        <section class="card" style="text-align: center; padding: 20px;">
+            <a href="index.html" class="btn btn-secondary" style="text-decoration: none; display: inline-block; margin: 5px;">
+                ← Voltar para Votações
+            </a>
+            <a href="admin.html" class="btn btn-secondary" style="text-decoration: none; display: inline-block; margin: 5px;">
+                Área Admin →
+            </a>
+        </section>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <script src="session.js"></script>
+    <script src="config.js"></script>
+    <script src="access-control.js"></script>
+    <script src="cadastro.js"></script>
+</body>
+</html>
+

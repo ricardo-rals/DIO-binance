@@ -1,0 +1,28 @@
+{
+  "name": "dasi-dao",
+  "version": "1.0.0",
+  "description": "DAO para Governança Estudantil Descentralizada - DASI Gov",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:ganache": "hardhat test --network ganache",
+    "node": "hardhat node",
+    "deploy": "hardhat run scripts/deploy.js",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:ganache": "hardhat run scripts/deploy-ganache.js --network ganache"
+  },
+  "keywords": ["dao", "governance", "voting", "blockchain", "solidity"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0",
+    "ethers": "^6.9.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.19.0",
+    "chai": "^4.3.10"
+  }
+}
+
