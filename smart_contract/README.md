@@ -2,6 +2,21 @@
 
 Sistema completo de DAO (Decentralized Autonomous Organization) para governança estudantil, implementado com Solidity e interface web. Inclui sistema de cadastro, aprovação e distribuição de tokens.
 
+## 📹 Vídeo Demonstrativo
+
+<div align="center">
+  <a href="https://youtu.be/DJwjqeUk5T8">
+    <img src="https://img.youtube.com/vi/DJwjqeUk5T8/maxresdefault.jpg" alt="Vídeo Demonstrativo - DASI Gov" style="width:100%;max-width:640px;">
+  </a>
+  <p><strong>🎥 Clique na imagem acima para assistir ao vídeo demonstrativo completo</strong></p>
+  
+  <p>
+    <a href="https://youtu.be/DJwjqeUk5T8">
+      <img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Assistir no YouTube">
+    </a>
+  </p>
+</div>
+
 ## 📋 Estrutura do Projeto
 
 ```
