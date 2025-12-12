@@ -38,7 +38,7 @@ window.addEventListener('load', async () => {
         window.AccessControl.init();
     }
     
-    // Verificar se já está conectado - se estiver, bloquear acesso
+    // Verificar se já está conectado e tem acesso - se tiver, redirecionar
     const session = window.SessionManager ? window.SessionManager.load() : null;
     if (session && session.account) {
         // Verificar se a conta ainda está conectada no MetaMask
@@ -46,10 +46,20 @@ window.addEventListener('load', async () => {
             try {
                 const accounts = await window.ethereum.request({ method: 'eth_accounts' });
                 if (accounts.length > 0 && accounts[0].toLowerCase() === session.account.toLowerCase()) {
-                    // Usuário já está conectado, redirecionar para index
-                    alert('Você já está conectado! A página de cadastro só é acessível para usuários não conectados.');
-                    window.location.href = 'index.html';
-                    return;
+                    // Verificar se tem acesso ao sistema
+                    if (window.AccessControl) {
+                        const canAccess = await window.AccessControl.canAccessSystem(accounts[0]);
+                        if (canAccess) {
+                            // Usuário tem acesso, redirecionar para index
+                            window.location.href = 'index.html';
+                            return;
+                        }
+                        // Se não tem acesso, pode ficar na página de cadastro
+                    } else {
+                        // Se não tem AccessControl, redirecionar para index
+                        window.location.href = 'index.html';
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error('Erro ao verificar conta:', error);
@@ -140,8 +150,8 @@ async function connectWallet() {
         // Atualizar mensagem para assinatura
         updateMessageToSign();
         
-        // Verificar se já tem cadastro no localStorage
-        const cadastros = getCadastros();
+        // Verificar se já tem cadastro
+        const cadastros = await getCadastros();
         const existingCadastro = cadastros.find(c => 
             c.endereco.toLowerCase() === currentAccount.toLowerCase()
         );
@@ -313,31 +323,72 @@ function verifySignature(message, signature, address) {
 async function checkExistingCadastro() {
     if (!currentAccount) return;
     
-    const cadastros = getCadastros();
-    const existing = cadastros.find(c => 
-        c.endereco.toLowerCase() === currentAccount.toLowerCase()
-    );
-    
-    if (existing) {
-        statusSection.style.display = 'block';
-        statusInfo.innerHTML = `
-            <div style="background: #e6fffa; padding: 20px; border-radius: 8px; border-left: 4px solid #38b2ac;">
-                <h3>✅ Você já está cadastrado!</h3>
-                <p><strong>Matrícula:</strong> ${existing.matricula}</p>
-                <p><strong>Nome:</strong> ${existing.nome}</p>
-                <p><strong>Endereço:</strong> ${existing.endereco}</p>
-                <p><strong>Status:</strong> ${existing.tokensDistribuidos ? '✅ Tokens já distribuídos' : '⏳ Aguardando distribuição de tokens'}</p>
-                <p><strong>Data do Cadastro:</strong> ${new Date(existing.timestamp).toLocaleString('pt-BR')}</p>
-            </div>
-        `;
+    try {
+        // Tentar verificar via API (checkAccess retorna dados anônimos)
+        if (window.APIClient) {
+            const accessInfo = await window.APIClient.checkAccess(currentAccount);
+            if (accessInfo && accessInfo.approved) {
+                statusSection.style.display = 'block';
+                statusInfo.innerHTML = `
+                    <div style="background: #e6fffa; padding: 20px; border-radius: 8px; border-left: 4px solid #38b2ac;">
+                        <h3>✅ Você já está cadastrado e aprovado!</h3>
+                        <p><strong>Endereço:</strong> ${currentAccount}</p>
+                        <p><strong>Status:</strong> ✅ Aprovado</p>
+                        <p><strong>Tokens:</strong> ${accessInfo.totalTokens || '0'}</p>
+                    </div>
+                `;
+                return;
+            } else if (accessInfo && accessInfo.id) {
+                // Cadastrado mas não aprovado
+                statusSection.style.display = 'block';
+                statusInfo.innerHTML = `
+                    <div style="background: #fff3cd; padding: 20px; border-radius: 8px; border-left: 4px solid #ffc107;">
+                        <h3>⏳ Cadastro pendente de aprovação</h3>
+                        <p><strong>Endereço:</strong> ${currentAccount}</p>
+                        <p><strong>Status:</strong> Aguardando aprovação pela administração</p>
+                    </div>
+                `;
+                return;
+            }
+        }
+        
+        // Fallback: tentar obter todos os cadastros (só funciona se for admin)
+        const cadastros = await getCadastros();
+        const existing = cadastros.find(c => 
+            c.endereco && c.endereco.toLowerCase() === currentAccount.toLowerCase()
+        );
+        
+        if (existing) {
+            statusSection.style.display = 'block';
+            statusInfo.innerHTML = `
+                <div style="background: #e6fffa; padding: 20px; border-radius: 8px; border-left: 4px solid #38b2ac;">
+                    <h3>✅ Você já está cadastrado!</h3>
+                    ${existing.matricula ? `<p><strong>Matrícula:</strong> ${existing.matricula}</p>` : ''}
+                    ${existing.nome ? `<p><strong>Nome:</strong> ${existing.nome}</p>` : ''}
+                    <p><strong>Endereço:</strong> ${existing.endereco || currentAccount}</p>
+                    <p><strong>Status:</strong> ${existing.status === 'aprovado' ? '✅ Aprovado' : '⏳ Pendente'}</p>
+                    ${existing.timestamp ? `<p><strong>Data do Cadastro:</strong> ${new Date(existing.timestamp).toLocaleString('pt-BR')}</p>` : ''}
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Erro ao verificar cadastro existente:', error);
+        // Não mostrar erro ao usuário, apenas logar
     }
 }
 
-// Obter cadastros do localStorage (usando AccessControl se disponível)
-function getCadastros() {
+// Obter cadastros (usando AccessControl/API se disponível)
+async function getCadastros() {
     if (window.AccessControl) {
-        return window.AccessControl.getCadastros();
+        try {
+            const cadastros = await window.AccessControl.getCadastros();
+            return Array.isArray(cadastros) ? cadastros : [];
+        } catch (error) {
+            console.error('Erro ao obter cadastros via AccessControl:', error);
+            return [];
+        }
     }
+    // Fallback para localStorage (não recomendado, mas mantido para compatibilidade)
     try {
         const cadastros = localStorage.getItem('dasi_cadastros');
         return cadastros ? JSON.parse(cadastros) : [];
@@ -347,30 +398,46 @@ function getCadastros() {
     }
 }
 
-// Salvar cadastro
-function saveCadastro(cadastro) {
-    const cadastros = getCadastros();
-    
-    // Verificar se já existe
-    const exists = cadastros.some(c => 
-        c.matricula === cadastro.matricula || 
-        c.endereco.toLowerCase() === cadastro.endereco.toLowerCase()
-    );
-    
-    if (exists) {
-        throw new Error('Matrícula ou endereço já cadastrado!');
+// Salvar cadastro via API
+async function saveCadastro(cadastro) {
+    // Verificar se já existe antes de criar
+    try {
+        const cadastros = await getCadastros();
+        const exists = cadastros.some(c => 
+            c.matricula === cadastro.matricula || 
+            c.endereco.toLowerCase() === cadastro.endereco.toLowerCase()
+        );
+        
+        if (exists) {
+            throw new Error('Matrícula ou endereço já cadastrado!');
+        }
+    } catch (error) {
+        // Se não conseguir verificar, ainda tenta criar (API pode retornar erro se já existir)
+        console.warn('Não foi possível verificar cadastros existentes:', error);
     }
     
-    cadastros.push(cadastro);
-    
-    // Salvar usando AccessControl se disponível
-    if (window.AccessControl) {
-        window.AccessControl.saveCadastros(cadastros);
+    // Usar API para criar cadastro
+    if (window.APIClient) {
+        try {
+            const result = await window.APIClient.createCadastro(cadastro);
+            return result;
+        } catch (error) {
+            console.error('Erro ao criar cadastro via API:', error);
+            throw error;
+        }
     } else {
-        localStorage.setItem('dasi_cadastros', JSON.stringify(cadastros));
+        // Fallback para localStorage (não recomendado)
+        console.warn('API não disponível, usando localStorage (não recomendado)');
+        try {
+            const cadastros = await getCadastros();
+            cadastros.push(cadastro);
+            localStorage.setItem('dasi_cadastros', JSON.stringify(cadastros));
+            return cadastros.length - 1;
+        } catch (error) {
+            console.error('Erro ao salvar cadastro:', error);
+            throw error;
+        }
     }
-    
-    return cadastros.length - 1; // Retorna o índice
 }
 
 // Submeter formulário
@@ -437,25 +504,8 @@ cadastroForm.addEventListener('submit', async (e) => {
             motivoRejeicao: null
         };
         
-        // Salvar no localStorage
-        saveCadastro(cadastro);
-        
-        // Mostrar sucesso
-        cadastroStatusDiv.style.display = 'block';
-        cadastroStatusDiv.innerHTML = `
-            <div style="background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b;">
-                <h3 style="color: #856404; margin-bottom: 10px;">✅ Cadastro realizado com sucesso!</h3>
-                <p style="color: #856404;">
-                    Seus dados foram registrados e estão <strong>aguardando aprovação</strong> pela administração.
-                </p>
-                <p style="color: #856404; margin-top: 10px; font-size: 0.9em;">
-                    Após a aprovação, você receberá 1 token DASI para participar das votações.
-                </p>
-                <p style="color: #856404; margin-top: 10px; font-size: 0.9em;">
-                    <strong>Status:</strong> Pendente de aprovação
-                </p>
-            </div>
-        `;
+        // Salvar via API
+        await saveCadastro(cadastro);
         
         // Limpar formulário
         cadastroForm.reset();
@@ -465,8 +515,11 @@ cadastroForm.addEventListener('submit', async (e) => {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Enviar Cadastro';
         
-        // Recarregar status
-        await loadCadastroStatus();
+        // Mostrar alerta informando que foi solicitado
+        alert('✅ Cadastro solicitado com sucesso!\n\nSeus dados foram registrados e estão aguardando aprovação pela administração.\n\nApós a aprovação, você receberá 1 token DASI para participar das votações.');
+        
+        // Redirecionar para a tela inicial após fechar o alerta
+        window.location.href = 'index.html';
         
     } catch (error) {
         console.error('Erro ao salvar cadastro:', error);
@@ -480,35 +533,63 @@ cadastroForm.addEventListener('submit', async (e) => {
 async function loadCadastroStatus() {
     if (!currentAccount) return;
     
-    const cadastros = getCadastros();
-    const meuCadastro = cadastros.find(c => 
-        c.endereco.toLowerCase() === currentAccount.toLowerCase()
-    );
-    
-    if (meuCadastro) {
-        statusSection.style.display = 'block';
-        statusInfo.innerHTML = `
-            <div style="background: #e6fffa; padding: 20px; border-radius: 8px; border-left: 4px solid #38b2ac;">
-                <h3>📋 Seu Cadastro</h3>
-                <div style="margin-top: 15px;">
-                    <p><strong>Matrícula:</strong> ${meuCadastro.matricula}</p>
-                    <p><strong>Nome:</strong> ${meuCadastro.nome}</p>
-                    <p><strong>Email:</strong> ${meuCadastro.email || 'Não informado'}</p>
-                    <p><strong>Endereço:</strong> ${meuCadastro.endereco}</p>
-                    <p><strong>Status:</strong> 
-                        ${meuCadastro.tokensDistribuidos ? 
-                            '<span style="color: #48bb78;">✅ Tokens distribuídos</span>' : 
-                            '<span style="color: #f59e0b;">⏳ Aguardando distribuição</span>'
+    try {
+        // Tentar verificar via API primeiro (checkAccess)
+        if (window.APIClient) {
+            const accessInfo = await window.APIClient.checkAccess(currentAccount);
+            if (accessInfo && (accessInfo.approved || accessInfo.id)) {
+                statusSection.style.display = 'block';
+                statusInfo.innerHTML = `
+                    <div style="background: #e6fffa; padding: 20px; border-radius: 8px; border-left: 4px solid #38b2ac;">
+                        <h3>📋 Seu Cadastro</h3>
+                        <div style="margin-top: 15px;">
+                            <p><strong>Endereço:</strong> ${currentAccount}</p>
+                            <p><strong>Status:</strong> ${accessInfo.approved ? '✅ Aprovado' : '⏳ Pendente de aprovação'}</p>
+                            ${accessInfo.totalTokens ? `<p><strong>Tokens:</strong> ${accessInfo.totalTokens}</p>` : ''}
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+        }
+        
+        // Fallback: tentar obter todos os cadastros (só funciona se for admin)
+        const cadastros = await getCadastros();
+        const meuCadastro = cadastros.find(c => 
+            c.endereco && c.endereco.toLowerCase() === currentAccount.toLowerCase()
+        );
+        
+        if (meuCadastro) {
+            statusSection.style.display = 'block';
+            statusInfo.innerHTML = `
+                <div style="background: #e6fffa; padding: 20px; border-radius: 8px; border-left: 4px solid #38b2ac;">
+                    <h3>📋 Seu Cadastro</h3>
+                    <div style="margin-top: 15px;">
+                        ${meuCadastro.matricula ? `<p><strong>Matrícula:</strong> ${meuCadastro.matricula}</p>` : ''}
+                        ${meuCadastro.nome ? `<p><strong>Nome:</strong> ${meuCadastro.nome}</p>` : ''}
+                        ${meuCadastro.email ? `<p><strong>Email:</strong> ${meuCadastro.email}</p>` : ''}
+                        <p><strong>Endereço:</strong> ${meuCadastro.endereco || currentAccount}</p>
+                        <p><strong>Status:</strong> 
+                            ${meuCadastro.status === 'aprovado' || meuCadastro.tokensDistribuidos ? 
+                                '<span style="color: #48bb78;">✅ Aprovado</span>' : 
+                                '<span style="color: #f59e0b;">⏳ Pendente de aprovação</span>'
+                            }
+                        </p>
+                        ${meuCadastro.timestamp ? 
+                            `<p><strong>Data do Cadastro:</strong> ${new Date(meuCadastro.timestamp).toLocaleString('pt-BR')}</p>` : 
+                            ''
                         }
-                    </p>
-                    <p><strong>Data do Cadastro:</strong> ${new Date(meuCadastro.timestamp).toLocaleString('pt-BR')}</p>
-                    ${meuCadastro.dataDistribuicao ? 
-                        `<p><strong>Data da Distribuição:</strong> ${new Date(meuCadastro.dataDistribuicao).toLocaleString('pt-BR')}</p>` : 
-                        ''
-                    }
+                        ${meuCadastro.dataDistribuicao ? 
+                            `<p><strong>Data da Distribuição:</strong> ${new Date(meuCadastro.dataDistribuicao).toLocaleString('pt-BR')}</p>` : 
+                            ''
+                        }
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
+        }
+    } catch (error) {
+        console.error('Erro ao carregar status do cadastro:', error);
+        // Não mostrar erro ao usuário, apenas logar
     }
 }
 

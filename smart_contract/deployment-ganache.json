@@ -1,11 +1,11 @@
 {
   "network": "ganache",
   "deployer": "0xF3cA79A01452E14C2790A8298D16dfade24ade8d",
-  "tokenAddress": "0x67eC759C65327793E1bC9041b78b9996fD46AABb",
-  "daoAddress": "0x6149170F44814873bD0387f88f24E9DDFAC9FD90",
+  "tokenAddress": "0x5F3fD09450e0e0b7e60220e8a9BF23b2b8D624aC",
+  "daoAddress": "0x1571A1B2502E073152BAA003aAF77A256C8Ed1f3",
   "quorumPercentage": 50,
   "votingPeriod": 604800,
-  "timestamp": "2025-12-10T13:50:15.050Z",
+  "timestamp": "2025-12-12T03:15:01.873Z",
   "accounts": [
     {
       "address": "0xF3cA79A01452E14C2790A8298D16dfade24ade8d"

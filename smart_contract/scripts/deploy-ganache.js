@@ -111,6 +111,36 @@ async function main() {
         JSON.stringify(deploymentInfo, null, 2)
     );
     console.log("\n✅ Informações de deploy salvas em deployment-ganache.json");
+    
+    // Definir deployer na API backend (se estiver rodando)
+    console.log("\n6️⃣ Configurando deployer no backend...");
+    try {
+        const axios = require('axios');
+        const API_URL = 'http://localhost:3000/api/access-control/deployer';
+        
+        try {
+            const response = await axios.post(API_URL, {
+                address: deployer.address
+            });
+            console.log("✅ Deployer definido no backend:", response.data.message);
+        } catch (apiError) {
+            if (apiError.response && apiError.response.status === 400 && 
+                apiError.response.data.error.includes('já definido')) {
+                console.log("⚠️  Deployer já estava definido no backend");
+            } else {
+                console.log("⚠️  Backend não está rodando ou erro ao definir deployer.");
+                console.log("   Você pode definir manualmente via API ou interface admin.");
+                console.log(`   POST ${API_URL} com body: { "address": "${deployer.address}" }`);
+            }
+        }
+    } catch (error) {
+        // Se axios não estiver instalado, apenas avisar
+        console.log("⚠️  Não foi possível definir deployer automaticamente.");
+        console.log("   Certifique-se de definir o deployer manualmente após iniciar o backend:");
+        console.log(`   POST http://localhost:3000/api/access-control/deployer`);
+        console.log(`   Body: { "address": "${deployer.address}" }`);
+    }
+    
     console.log("\n💡 Dica: Use as contas do Ganache para testar a aplicação!");
 }
 

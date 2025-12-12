@@ -246,7 +246,7 @@ contract DASIDAO is Ownable {
     }
     
     /**
-     * @dev Cria uma proposta com múltiplas opções (apenas para proposers autorizados)
+     * @dev Cria uma proposta com múltiplas opções (apenas para owners/deployer)
      * @param description Descrição da proposta
      * @param options Array de opções para votação (ex: ["Chapa A", "Chapa B"])
      * @return proposalId ID da proposta criada
@@ -255,7 +255,7 @@ contract DASIDAO is Ownable {
         string memory description,
         string[] memory options
     ) external returns (uint256) {
-        require(authorizedProposers[msg.sender], "DASIDAO: Not authorized to create multi-option proposals");
+        require(isOwnerOrDeployer(msg.sender), "DASIDAO: Only owners or deployer can create multi-option proposals");
         require(options.length >= 2, "DASIDAO: Must have at least 2 options");
         require(options.length <= 10, "DASIDAO: Maximum 10 options allowed");
         
@@ -312,20 +312,25 @@ contract DASIDAO is Ownable {
         MultiOptionProposal storage multiProposal = multiOptionProposals[proposalId];
         require(optionIndex < multiProposal.options.length, "DASIDAO: Invalid option index");
         
-        uint256 weight = token.balanceOf(msg.sender);
-        require(weight > 0, "DASIDAO: Must hold tokens to vote");
-        
-        // Queimar 1 token ao votar
+        bool voterIsOwner = isOwnerOrDeployer(msg.sender);
         uint256 burnAmount = 1 ether; // 1 token DASI
-        require(weight >= burnAmount, "DASIDAO: Insufficient tokens to vote");
+        
+        // Apenas não-owners precisam ter tokens para votar
+        if (!voterIsOwner) {
+            uint256 weight = token.balanceOf(msg.sender);
+            require(weight > 0, "DASIDAO: Must hold tokens to vote");
+            require(weight >= burnAmount, "DASIDAO: Insufficient tokens to vote");
+        }
         
         proposal.hasVoted[msg.sender] = true;
         proposal.voterCount += 1;
         multiProposal.optionVotes[optionIndex] += burnAmount;
         multiProposal.optionVoterCount[optionIndex] += 1;
         
-        // Queimar 1 token
-        token.burnFrom(msg.sender, burnAmount);
+        // Queimar 1 token apenas se não for owner/deployer
+        if (!voterIsOwner) {
+            token.burnFrom(msg.sender, burnAmount);
+        }
         
         emit MultiOptionVoteCast(proposalId, msg.sender, optionIndex, burnAmount);
     }
@@ -334,7 +339,7 @@ contract DASIDAO is Ownable {
      * @dev Vota em uma proposta
      * @param proposalId ID da proposta
      * @param voteType Tipo de voto (1 = For, 2 = Against, 3 = Abstain)
-     * @notice Cada voto consome 1 token DASI (queimado)
+     * @notice Cada voto consome 1 token DASI (queimado), exceto para owners/deployer
      */
     function vote(uint256 proposalId, Vote voteType) external {
         require(voteType != Vote.None, "DASIDAO: Invalid vote type");
@@ -346,24 +351,21 @@ contract DASIDAO is Ownable {
         require(block.timestamp <= proposal.endTime, "DASIDAO: Voting ended");
         require(!proposal.hasVoted[msg.sender], "DASIDAO: Already voted");
         
-        uint256 weight = token.balanceOf(msg.sender);
-        require(weight > 0, "DASIDAO: Must hold tokens to vote");
-        
-        // Queimar 1 token ao votar
+        bool voterIsOwner = isOwnerOrDeployer(msg.sender);
         uint256 burnAmount = 1 ether; // 1 token DASI
-        require(weight >= burnAmount, "DASIDAO: Insufficient tokens to vote");
         
-        // Transferir tokens para o contrato DAO (que será queimado)
-        // O DAO precisa ter permissão para transferir tokens do usuário
-        // Usaremos transferFrom, então o usuário precisa aprovar primeiro
-        // OU podemos usar uma abordagem diferente: queimar diretamente
-        // Vamos usar uma função auxiliar no token para queimar
+        // Apenas não-owners precisam ter tokens para votar
+        if (!voterIsOwner) {
+            uint256 weight = token.balanceOf(msg.sender);
+            require(weight > 0, "DASIDAO: Must hold tokens to vote");
+            require(weight >= burnAmount, "DASIDAO: Insufficient tokens to vote");
+        }
         
         proposal.hasVoted[msg.sender] = true;
         proposal.votes[msg.sender] = voteType;
         proposal.voterCount += 1;
         
-        // Calcular peso do voto (antes de queimar)
+        // Calcular peso do voto
         if (voteType == Vote.For) {
             proposal.votesFor += burnAmount;
             proposal.voterCountFor += 1;
@@ -375,8 +377,10 @@ contract DASIDAO is Ownable {
             proposal.voterCountAbstain += 1;
         }
         
-        // Queimar 1 token
-        token.burnFrom(msg.sender, burnAmount);
+        // Queimar 1 token apenas se não for owner/deployer
+        if (!voterIsOwner) {
+            token.burnFrom(msg.sender, burnAmount);
+        }
         
         emit VoteCast(proposalId, msg.sender, voteType, burnAmount);
     }

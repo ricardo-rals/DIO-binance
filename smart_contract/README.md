@@ -12,19 +12,37 @@ smart_contract/
 ├── scripts/                # Scripts de deploy
 │   ├── deploy-ganache.js   # Script para deploy no Ganache
 │   ├── deploy.js           # Script genérico de deploy
+│   ├── setup-deployer.js   # Script para configurar deployer
 │   └── distribuir-tokens.js # Script para distribuição (alternativo)
+├── backend/                # API REST Backend
+│   ├── server.js           # Servidor Express
+│   ├── routes/             # Rotas da API
+│   │   ├── cadastros.js    # Rotas de cadastros
+│   │   ├── history.js      # Rotas de histórico
+│   │   └── access-control.js # Rotas de controle de acesso
+│   ├── services/           # Lógica de negócio
+│   │   ├── cadastros.js    # Serviço de cadastros
+│   │   ├── history.js      # Serviço de histórico
+│   │   └── access-control.js # Serviço de controle de acesso
+│   └── database/           # Banco de dados (JSON)
+│       ├── cadastros.json  # Dados pessoais
+│       ├── wallet_mappings.json # Mapeamento anônimo
+│       ├── distribution_history.json # Histórico
+│       └── access_control.json # Deployer e owners
 ├── frontend/               # Interface web
 │   ├── index.html          # Página principal (votações)
 │   ├── cadastro.html       # Página de cadastro
 │   ├── admin.html          # Área administrativa
-│   ├── app.js              # Lógica da página principal
-│   ├── cadastro.js         # Lógica de cadastro
-│   ├── admin.js            # Lógica administrativa
-│   ├── access-control.js   # Sistema de controle de acesso
-│   ├── reset-system.js     # Ferramentas de reset (dev)
-│   ├── session.js          # Gerenciamento de sessão
-│   ├── config.js           # Configuração dos contratos
-│   └── styles.css          # Estilos CSS
+│   ├── css/
+│   │   └── styles.css      # Estilos CSS
+│   └── js/
+│       ├── config.js           # Configuração dos contratos
+│       ├── session.js          # Gerenciamento de sessão
+│       ├── access-control.js  # Sistema de controle de acesso
+│       ├── api.js              # Cliente API REST
+│       ├── app.js              # Lógica da página principal
+│       ├── cadastro.js         # Lógica de cadastro
+│       └── admin.js            # Lógica administrativa
 ├── test/                   # Testes
 │   └── DAO.test.js         # Testes do contrato DAO
 ├── hardhat.config.js       # Configuração do Hardhat
@@ -76,14 +94,25 @@ Este comando irá:
 - ✅ Configurar permissões (DAO como minter)
 - ✅ **NÃO mintear tokens automaticamente** (deploy limpo)
 
-**IMPORTANTE:** Após o deploy, copie os endereços dos contratos e atualize em `frontend/config.js`:
+**IMPORTANTE:** Após o deploy, copie os endereços dos contratos e atualize em `frontend/js/config.js`:
 ```javascript
 TOKEN_ADDRESS: "0x...", // Endereço do DASIToken
 DAO_ADDRESS: "0x...",   // Endereço do DASIDAO
 DEPLOYER_ADDRESS: "0x...", // Endereço do deployer
 ```
 
-#### 3. Configurar MetaMask para Ganache
+#### 3. Iniciar o Backend API
+
+Em um terminal separado:
+```bash
+npm run backend
+```
+
+O servidor estará rodando em `http://localhost:3000`
+
+**Nota:** O backend é necessário para o funcionamento completo do sistema. Ele gerencia cadastros, histórico e controle de acesso de forma segura, separando dados pessoais dos endereços de carteira.
+
+#### 4. Configurar MetaMask para Ganache
 
 1. Abra o MetaMask
 2. Adicione uma rede customizada:
@@ -97,7 +126,7 @@ DEPLOYER_ADDRESS: "0x...", // Endereço do deployer
    - No MetaMask, clique em "Importar conta"
    - Cole a chave privada
 
-#### 4. Abrir o front-end
+#### 5. Abrir o front-end
 
 Abra os arquivos HTML no navegador ou use um servidor local:
 
@@ -151,8 +180,10 @@ Acesse:
 
 #### DASIDAO
 - **Criar Propostas**: Detentores de tokens podem criar propostas simples
-- **Propostas com Múltiplas Opções**: Apenas deployer/owners podem criar
-- **Votar**: Membros votam usando seus tokens (A Favor, Contra, Abster)
+- **Propostas com Múltiplas Opções**: Apenas deployer/owners podem criar (ex: eleições de chapa)
+- **Votar**: Membros votam usando seus tokens (A Favor, Contra, Abster) - 1 token é queimado por voto
+- **Votar (Deployer/Owners)**: Podem votar sem gastar tokens
+- **Aprovação de Propostas**: Propostas de estudantes precisam ser aprovadas pelos owners antes de iniciarem
 - **Executar**: Propostas aprovadas podem ser executadas após o período de votação
 - **Quórum**: Configurável (padrão: 50%)
 - **Período de Votação**: Configurável (padrão: 7 dias)
@@ -170,6 +201,10 @@ Acesse:
 - ✅ Sistema de cadastro com aprovação
 - ✅ Interface administrativa completa
 - ✅ Gerenciamento de owners (deployer)
+- ✅ Backend API REST para gerenciamento de dados
+- ✅ Separação de dados pessoais e endereços (anonimato)
+- ✅ Histórico de distribuições de tokens
+- ✅ Utilitários administrativos (reset de banco de dados)
 
 ## 🔐 Sistema de Controle de Acesso
 
@@ -181,12 +216,17 @@ Acesse:
    - Pode distribuir tokens
    - Pode gerenciar owners
    - Pode criar propostas com múltiplas opções
+   - Pode votar sem gastar tokens
+   - Pode aprovar propostas de estudantes
+   - Pode resetar banco de dados (utilitários administrativos)
 
 2. **Owners/Diretores**
    - Acesso total ao sistema
    - Pode aprovar/rejeitar cadastros
    - Pode distribuir tokens
    - Pode criar propostas com múltiplas opções
+   - Pode votar sem gastar tokens
+   - Pode aprovar propostas de estudantes
    - Gerenciados pelo deployer
 
 3. **Estudantes Aprovados**
@@ -259,27 +299,30 @@ Via interface admin (apenas deployer):
 
 ```solidity
 - createProposal(string description) - Criar proposta simples
-- createMultiOptionProposal(string description, string[] options) - Criar proposta com múltiplas opções
+- createMultiOptionProposal(string description, string[] options) - Criar proposta com múltiplas opções (apenas owners/deployer)
 - vote(uint256 proposalId, Vote voteType) - Votar (1=A Favor, 2=Contra, 3=Abster)
 - voteMultiOption(uint256 proposalId, uint256 optionIndex) - Votar em proposta com múltiplas opções
 - executeProposal(uint256 proposalId) - Executar proposta
+- voteOnProposalApproval(uint256 proposalId, bool approve, address[] approvedUsers) - Aprovar proposta de estudante
 - getProposal(uint256 proposalId) - Obter detalhes da proposta
 - hasVoted(uint256 proposalId, address voter) - Verificar se votou
 - getProposalStatus(uint256 proposalId) - Obter status da proposta
-- addAuthorizedProposer(address proposer) - Adicionar proposer autorizado
+- isOwnerOrDeployer(address account) - Verificar se é owner ou deployer
 ```
 
 ## 🚨 Importante
 
 1. **Segurança:** Este é um projeto educacional. Para produção, faça auditorias de segurança.
 
-2. **Endereços:** Sempre atualize os endereços dos contratos em `frontend/config.js` após cada deploy.
+2. **Endereços:** Sempre atualize os endereços dos contratos em `frontend/js/config.js` após cada deploy.
 
 3. **Rede:** O deploy padrão é na rede local (Ganache). Para outras redes, configure as variáveis de ambiente.
 
 4. **Deploy Limpo:** O deploy não minteia tokens automaticamente. Use a interface admin para distribuir tokens após aprovar cadastros.
 
 5. **Sistema de Aprovação:** Todos os cadastros precisam ser aprovados antes de ter acesso ao sistema.
+
+6. **Backend API:** O backend deve estar rodando para funcionalidades completas (cadastro, aprovação, histórico).
 
 ## 🔗 Deploy em Outras Redes
 
@@ -298,6 +341,10 @@ npx hardhat run scripts/deploy-ganache.js --network polygon
 
 - [GUIA_CADASTRO.md](./GUIA_CADASTRO.md) - Guia completo de cadastro e distribuição
 - [GANACHE_SETUP.md](./GANACHE_SETUP.md) - Configuração do Ganache
+- [SETUP_DEPLOYER.md](./SETUP_DEPLOYER.md) - Configuração do deployer no sistema
+- [VERIFICACAO_ACESSO.md](./VERIFICACAO_ACESSO.md) - Sistema de verificação de acesso
+- [backend/README.md](./backend/README.md) - Documentação da API REST
+- [frontend/README.md](./frontend/README.md) - Documentação do frontend
 
 ## 🤝 Contribuição
 

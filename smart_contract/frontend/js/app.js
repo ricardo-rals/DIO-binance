@@ -56,7 +56,7 @@ async function init() {
                     
                     // Verificar se pode acessar o sistema
                     const canAccess = window.AccessControl ? 
-                        window.AccessControl.canAccessSystem(accounts[0]) : false;
+                        await window.AccessControl.canAccessSystem(accounts[0]) : false;
                     
                     if (canAccess) {
                         autoReconnectEnabled = true;
@@ -88,15 +88,33 @@ async function init() {
             if (accounts.length === 0) {
                 disconnectWallet();
             } else {
-                // Conta mudou, atualizar sessão
-                if (window.SessionManager) {
-                    window.SessionManager.save(accounts[0], 'ganache');
+                // Conta mudou, verificar acesso antes de reconectar
+                if (window.AccessControl) {
+                    window.AccessControl.init();
                 }
-                await connectWallet();
-                // Verificar autorização novamente quando a conta mudar
-                setTimeout(async () => {
-                    await checkAuthorizedProposer();
-                }, 500);
+                
+                const canAccess = window.AccessControl ? 
+                    await window.AccessControl.canAccessSystem(accounts[0]) : false;
+                
+                if (canAccess) {
+                    // Tem acesso, reconectar
+                    if (window.SessionManager) {
+                        window.SessionManager.save(accounts[0], 'ganache');
+                    }
+                    await connectWallet();
+                    // Verificar autorização novamente quando a conta mudar
+                    setTimeout(async () => {
+                        await checkAuthorizedProposer();
+                        await checkAndShowAdminButton();
+                    }, 500);
+                } else {
+                    // Não tem acesso, redirecionar para cadastro
+                    if (window.SessionManager) {
+                        window.SessionManager.clear();
+                    }
+                    alert('Esta carteira não tem acesso ao sistema! Redirecionando para cadastro...');
+                    window.location.href = 'cadastro.html';
+                }
             }
         });
     } else {
@@ -128,23 +146,29 @@ async function connectWallet() {
         
         // Verificar se pode acessar o sistema
         const canAccess = window.AccessControl ? 
-            window.AccessControl.canAccessSystem(currentAccount) : false;
+            await window.AccessControl.canAccessSystem(currentAccount) : false;
         
         if (!canAccess) {
-            // Verificar se está cadastrado mas não aprovado
-            const cadastros = window.AccessControl ? 
-                window.AccessControl.getCadastros() : getCadastros();
-            const cadastro = cadastros.find(c => 
-                c.endereco.toLowerCase() === currentAccount.toLowerCase()
-            );
+            // Tentar verificar status do cadastro via API pública
+            let statusMessage = 'Esta carteira não está cadastrada ou não tem acesso ao sistema! Por favor, faça o cadastro primeiro na página de cadastro.';
             
-            if (cadastro && cadastro.status === 'pendente') {
-                alert('Seu cadastro está aguardando aprovação. Entre em contato com a administração.');
-            } else if (cadastro && cadastro.status === 'rejeitado') {
-                alert('Seu cadastro foi rejeitado. Entre em contato com a administração para mais informações.');
-            } else {
-                alert('Esta carteira não está cadastrada ou não tem acesso ao sistema! Por favor, faça o cadastro primeiro na página de cadastro.');
+            if (window.APIClient) {
+                try {
+                    const cadastroInfo = await window.APIClient.checkAccess(currentAccount);
+                    if (cadastroInfo && cadastroInfo.approved) {
+                        
+                            statusMessage = 'Seu cadastro está aguardando aprovação ou foi rejeitado. Entre em contato com a administração.';
+                        
+                    }else {
+                        statusMessage = 'Esta carteira não está cadastrada ou não tem acesso ao sistema! Por favor, faça o cadastro primeiro na página de cadastro.';
+                    }
+                } catch (error) {
+                    // Se não encontrou, significa que não está cadastrado (não é erro)
+                    console.log('Cadastro não encontrado - usuário precisa se cadastrar');
+                }
             }
+            
+            alert(statusMessage);
             
             // Limpar estado
             currentAccount = null;
@@ -181,6 +205,15 @@ async function connectWallet() {
         // Mostrar seções
         document.getElementById('proposals-section').style.display = 'block';
         document.getElementById('info-section').style.display = 'block';
+        
+        // Mostrar botões de navegação
+        const navButtons = document.getElementById('navigation-buttons');
+        if (navButtons) {
+            navButtons.style.display = 'block';
+        }
+        
+        // Verificar se é admin e mostrar botão de admin
+        await checkAndShowAdminButton();
         
         // Verificar autorização após tudo estar carregado (com delay para garantir DOM)
         setTimeout(async () => {
@@ -227,6 +260,16 @@ async function disconnectWallet() {
         document.getElementById('token-balance').style.display = 'none';
         document.getElementById('proposals-section').style.display = 'none';
         document.getElementById('info-section').style.display = 'none';
+        
+        // Ocultar botões de navegação
+        const navButtons = document.getElementById('navigation-buttons');
+        if (navButtons) {
+            navButtons.style.display = 'none';
+        }
+        const adminBtn = document.getElementById('admin-nav-btn');
+        if (adminBtn) {
+            adminBtn.style.display = 'none';
+        }
         
         // Limpar container de propostas
         document.getElementById('proposals-container').innerHTML = '<p class="loading">Carregando propostas...</p>';
@@ -585,18 +628,43 @@ document.querySelectorAll('input[name="proposal-type"]').forEach(radio => {
         const multiContainer = document.getElementById('multi-options-container');
         
         if (e.target.value === 'multi') {
-            multiContainer.style.display = 'block';
             // Verificar se o usuário está autorizado (deployer ou owner)
-            if (currentAccount) {
-                const isAuthorized = window.AccessControl ? 
-                    window.AccessControl.hasAdminAccess(currentAccount) : false;
+            if (!currentAccount) {
+                alert('Conecte sua carteira primeiro!');
+                document.querySelector('input[name="proposal-type"][value="simple"]').checked = true;
+                return;
+            }
+            
+            // Verificar autorização de forma assíncrona
+            (async () => {
+                let isAuthorized = false;
+                
+                if (window.AccessControl) {
+                    try {
+                        isAuthorized = await window.AccessControl.hasAdminAccess(currentAccount);
+                    } catch (error) {
+                        console.error('Erro ao verificar acesso:', error);
+                    }
+                }
+                
+                // Também verificar no contrato se disponível
+                if (daoContract && !isAuthorized) {
+                    try {
+                        const isOwnerOrDeployer = await daoContract.isOwnerOrDeployer(currentAccount);
+                        isAuthorized = isOwnerOrDeployer;
+                    } catch (error) {
+                        console.error('Erro ao verificar no contrato:', error);
+                    }
+                }
                 
                 if (!isAuthorized) {
                     alert('Apenas deployer ou owners podem criar propostas com múltiplas opções!');
                     document.querySelector('input[name="proposal-type"][value="simple"]').checked = true;
                     multiContainer.style.display = 'none';
+                } else {
+                    multiContainer.style.display = 'block';
                 }
-            }
+            })();
         } else {
             multiContainer.style.display = 'none';
         }
@@ -656,8 +724,25 @@ document.getElementById('create-proposal-btn').addEventListener('click', async (
     try {
         if (proposalType === 'multi') {
             // Verificar autorização (deployer ou owner)
-            const isAuthorized = window.AccessControl ? 
-                window.AccessControl.hasAdminAccess(currentAccount) : false;
+            let isAuthorized = false;
+            
+            if (window.AccessControl && currentAccount) {
+                try {
+                    isAuthorized = await window.AccessControl.hasAdminAccess(currentAccount);
+                } catch (error) {
+                    console.error('Erro ao verificar acesso:', error);
+                }
+            }
+            
+            // Também verificar no contrato se disponível
+            if (daoContract && currentAccount && !isAuthorized) {
+                try {
+                    const isOwnerOrDeployer = await daoContract.isOwnerOrDeployer(currentAccount);
+                    isAuthorized = isOwnerOrDeployer;
+                } catch (error) {
+                    console.error('Erro ao verificar no contrato:', error);
+                }
+            }
             
             if (!isAuthorized) {
                 alert('Apenas deployer ou owners podem criar propostas com múltiplas opções!');
@@ -809,6 +894,30 @@ async function castVote(voteType) {
     if (!daoContract || currentProposalId === null) return;
     
     try {
+        // Verificar saldo antes de votar (para dar feedback melhor ao usuário)
+        if (tokenContract && currentAccount) {
+            const balance = await tokenContract.balanceOf(currentAccount);
+            const balanceFormatted = ethers.utils.formatEther(balance);
+            
+            // Verificar se é owner/deployer
+            let isOwnerOrDeployer = false;
+            if (window.AccessControl && currentAccount) {
+                const hasAdmin = await window.AccessControl.hasAdminAccess(currentAccount);
+                if (hasAdmin) {
+                    isOwnerOrDeployer = true;
+                }
+            }
+            
+            // Se não é owner/deployer e não tem tokens suficientes, avisar
+            if (!isOwnerOrDeployer && parseFloat(balanceFormatted) < 1) {
+                const message = 'Você precisa ter pelo menos 1 token DASI para votar.\n\n' +
+                              `Seu saldo atual: ${balanceFormatted} DASI\n\n` +
+                              'Por favor, solicite um cadastro e aguarde a aprovação para receber tokens.';
+                alert(message);
+                return;
+            }
+        }
+        
         const tx = await daoContract.vote(currentProposalId, voteType);
         alert('Voto enviado! Aguardando confirmação...');
         
@@ -817,9 +926,44 @@ async function castVote(voteType) {
         
         closeVoteModal();
         await loadProposals();
+        await loadUserData();
     } catch (error) {
         console.error('Erro ao votar:', error);
-        alert('Erro ao votar: ' + error.message);
+        
+        // Tratamento de erro mais detalhado
+        let errorMessage = 'Erro ao votar: ';
+        
+        if (error.data && error.data.message) {
+            const revertReason = error.data.message;
+            if (revertReason.includes('Must hold tokens to vote')) {
+                errorMessage = 'Você precisa ter pelo menos 1 token DASI para votar.\n\n' +
+                             'Por favor, solicite um cadastro e aguarde a aprovação para receber tokens.';
+            } else if (revertReason.includes('Insufficient tokens')) {
+                errorMessage = 'Você não tem tokens suficientes para votar.\n\n' +
+                             'É necessário ter pelo menos 1 token DASI.';
+            } else if (revertReason.includes('Already voted')) {
+                errorMessage = 'Você já votou nesta proposta.';
+            } else if (revertReason.includes('Voting ended')) {
+                errorMessage = 'O período de votação já terminou.';
+            } else if (revertReason.includes('Voting not started')) {
+                errorMessage = 'A votação ainda não começou.';
+            } else if (revertReason.includes('not approved')) {
+                errorMessage = 'Esta proposta ainda não foi aprovada pelos administradores.';
+            } else {
+                errorMessage += revertReason;
+            }
+        } else if (error.message) {
+            if (error.message.includes('Must hold tokens') || error.message.includes('Insufficient tokens')) {
+                errorMessage = 'Você precisa ter pelo menos 1 token DASI para votar.\n\n' +
+                             'Por favor, solicite um cadastro e aguarde a aprovação para receber tokens.';
+            } else {
+                errorMessage += error.message;
+            }
+        } else {
+            errorMessage += 'Erro desconhecido. Verifique o console para mais detalhes.';
+        }
+        
+        alert(errorMessage);
     }
 }
 
@@ -827,6 +971,30 @@ async function castMultiOptionVote(proposalId, optionIndex) {
     if (!daoContract) return;
     
     try {
+        // Verificar saldo antes de votar (para dar feedback melhor ao usuário)
+        if (tokenContract && currentAccount) {
+            const balance = await tokenContract.balanceOf(currentAccount);
+            const balanceFormatted = ethers.utils.formatEther(balance);
+            
+            // Verificar se é owner/deployer
+            let isOwnerOrDeployer = false;
+            if (window.AccessControl && currentAccount) {
+                const hasAdmin = await window.AccessControl.hasAdminAccess(currentAccount);
+                if (hasAdmin) {
+                    isOwnerOrDeployer = true;
+                }
+            }
+            
+            // Se não é owner/deployer e não tem tokens suficientes, avisar
+            if (!isOwnerOrDeployer && parseFloat(balanceFormatted) < 1) {
+                const message = 'Você precisa ter pelo menos 1 token DASI para votar.\n\n' +
+                              `Seu saldo atual: ${balanceFormatted} DASI\n\n` +
+                              'Por favor, solicite um cadastro e aguarde a aprovação para receber tokens.';
+                alert(message);
+                return;
+            }
+        }
+        
         const tx = await daoContract.voteMultiOption(proposalId, optionIndex);
         alert('Voto enviado! Aguardando confirmação...');
         
@@ -835,9 +1003,44 @@ async function castMultiOptionVote(proposalId, optionIndex) {
         
         closeVoteModal();
         await loadProposals();
+        await loadUserData();
     } catch (error) {
         console.error('Erro ao votar:', error);
-        alert('Erro ao votar: ' + error.message);
+        
+        // Tratamento de erro mais detalhado
+        let errorMessage = 'Erro ao votar: ';
+        
+        if (error.data && error.data.message) {
+            const revertReason = error.data.message;
+            if (revertReason.includes('Must hold tokens to vote')) {
+                errorMessage = 'Você precisa ter pelo menos 1 token DASI para votar.\n\n' +
+                             'Por favor, solicite um cadastro e aguarde a aprovação para receber tokens.';
+            } else if (revertReason.includes('Insufficient tokens')) {
+                errorMessage = 'Você não tem tokens suficientes para votar.\n\n' +
+                             'É necessário ter pelo menos 1 token DASI.';
+            } else if (revertReason.includes('Already voted')) {
+                errorMessage = 'Você já votou nesta proposta.';
+            } else if (revertReason.includes('Voting ended')) {
+                errorMessage = 'O período de votação já terminou.';
+            } else if (revertReason.includes('Voting not started')) {
+                errorMessage = 'A votação ainda não começou.';
+            } else if (revertReason.includes('not approved')) {
+                errorMessage = 'Esta proposta ainda não foi aprovada pelos administradores.';
+            } else {
+                errorMessage += revertReason;
+            }
+        } else if (error.message) {
+            if (error.message.includes('Must hold tokens') || error.message.includes('Insufficient tokens')) {
+                errorMessage = 'Você precisa ter pelo menos 1 token DASI para votar.\n\n' +
+                             'Por favor, solicite um cadastro e aguarde a aprovação para receber tokens.';
+            } else {
+                errorMessage += error.message;
+            }
+        } else {
+            errorMessage += 'Erro desconhecido. Verifique o console para mais detalhes.';
+        }
+        
+        alert(errorMessage);
     }
 }
 
@@ -914,5 +1117,35 @@ window.testAuthorization = async function() {
     }
     
     return isAuthorized;
+}
+
+// Verificar e mostrar botão de admin se for deployer/owner
+async function checkAndShowAdminButton() {
+    if (!currentAccount) {
+        return;
+    }
+    
+    const adminBtn = document.getElementById('admin-nav-btn');
+    if (!adminBtn) {
+        return;
+    }
+    
+    try {
+        if (window.AccessControl) {
+            const hasAdmin = await window.AccessControl.hasAdminAccess(currentAccount);
+            if (hasAdmin) {
+                adminBtn.style.display = 'inline-block';
+                console.log('✅ Botão de admin mostrado - usuário é deployer/owner');
+            } else {
+                adminBtn.style.display = 'none';
+                console.log('❌ Botão de admin oculto - usuário não é admin');
+            }
+        } else {
+            adminBtn.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Erro ao verificar acesso admin:', error);
+        adminBtn.style.display = 'none';
+    }
 };
 

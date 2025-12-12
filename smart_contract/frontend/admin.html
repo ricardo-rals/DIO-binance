@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - DASI Gov</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
     <div class="container">
@@ -53,6 +53,34 @@
                     <button id="add-owner-btn" class="btn btn-primary">Adicionar Owner</button>
                 </div>
                 <div id="owner-status" style="margin-top: 10px;"></div>
+            </div>
+        </section>
+
+        <!-- Utilitários do Sistema (Apenas Deployer) -->
+        <section class="card" id="utilities-section" style="display: none;">
+            <h2>⚙️ Utilitários do Sistema</h2>
+            <p style="color: #718096; margin-bottom: 20px;">
+                Ferramentas administrativas avançadas. Use com cautela!
+            </p>
+            
+            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin-bottom: 20px;">
+                <h3 style="color: #856404; margin-top: 0;">🗑️ Limpar Banco de Dados</h3>
+                <p style="color: #856404; margin-bottom: 15px;">
+                    Esta ação irá <strong>deletar permanentemente</strong> todos os dados dos seguintes arquivos:
+                </p>
+                <ul style="color: #856404; margin-left: 20px; margin-bottom: 15px;">
+                    <li><code>cadastros.json</code> - Todos os cadastros de estudantes</li>
+                    <li><code>wallet_mappings.json</code> - Todos os mapeamentos de carteiras</li>
+                    <li><code>distribution_history.json</code> - Todo o histórico de distribuições</li>
+                </ul>
+                <p style="color: #856404; margin-bottom: 15px;">
+                    <strong>⚠️ ATENÇÃO:</strong> Esta ação não pode ser desfeita! O arquivo <code>access_control.json</code> 
+                    (deployer e owners) <strong>NÃO</strong> será afetado.
+                </p>
+                <button id="reset-database-btn" class="btn btn-danger">
+                    🗑️ Limpar Banco de Dados
+                </button>
+                <div id="reset-database-status" style="margin-top: 15px;"></div>
             </div>
         </section>
 
@@ -151,10 +179,15 @@
             <div class="batch-actions" style="margin-top: 30px; padding: 20px; background: #f7fafc; border-radius: 8px;">
                 <h3>Distribuir Tokens</h3>
                 <p style="color: #718096; margin-bottom: 15px;">
-                    Selecione os estudantes que receberão tokens. Cada estudante receberá <strong>1 token DASI</strong>.
+                    Selecione os estudantes que receberão tokens e escolha a quantidade para cada um.
                 </p>
                 <div style="margin-bottom: 15px;">
                     <strong>Selecionados:</strong> <span id="selected-count">0</span> estudante(s)
+                </div>
+                <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <label for="token-amount" style="font-weight: bold;">Quantidade de tokens por estudante:</label>
+                    <input type="number" id="token-amount" min="0.1" step="0.1" value="1" style="padding: 8px; border-radius: 5px; border: 2px solid #e2e8f0; width: 100px;">
+                    <span style="color: #718096;">DASI</span>
                 </div>
                 <button id="distribute-tokens-btn" class="btn btn-primary" disabled>
                     Distribuir Tokens para Selecionados
@@ -163,21 +196,31 @@
             </div>
         </section>
 
-        <!-- Ferramentas de Desenvolvimento (Apenas Deployer) -->
-        <section class="card" id="dev-tools-section" style="display: none; background: #fff3cd; border-left: 4px solid #f59e0b;">
-            <h2>🔧 Ferramentas de Desenvolvimento</h2>
-            <p style="color: #856404; margin-bottom: 15px;">
-                <strong>⚠️ ATENÇÃO:</strong> Estas ferramentas são apenas para desenvolvimento/testes.
+        <!-- Histórico de Distribuições -->
+        <section class="card" id="history-section" style="display: none;">
+            <h2>📜 Histórico de Distribuições</h2>
+            <p style="color: #718096; margin-bottom: 20px;">
+                Registro de todas as distribuições de tokens realizadas.
             </p>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <button id="reset-cadastros-btn" class="btn btn-danger">
-                    🗑️ Limpar Todos os Cadastros
-                </button>
-                <button id="reset-system-btn" class="btn btn-danger">
-                    🔄 Resetar Sistema Completo
-                </button>
+            
+            <div style="margin-bottom: 15px;">
+                <label>
+                    <input type="radio" name="history-filter" value="all" checked onchange="filterHistory()">
+                    Todas
+                </label>
+                <label style="margin-left: 15px;">
+                    <input type="radio" name="history-filter" value="approval" onchange="filterHistory()">
+                    Aprovações
+                </label>
+                <label style="margin-left: 15px;">
+                    <input type="radio" name="history-filter" value="manual" onchange="filterHistory()">
+                    Distribuições Manuais
+                </label>
             </div>
-            <div id="reset-status" style="margin-top: 15px;"></div>
+            
+            <div id="history-container" style="max-height: 500px; overflow-y: auto;">
+                <p class="loading">Carregando histórico...</p>
+            </div>
         </section>
 
         <!-- Navegação -->
@@ -185,18 +228,15 @@
             <a href="index.html" class="btn btn-secondary" style="text-decoration: none; display: inline-block; margin: 5px;">
                 ← Voltar para Votações
             </a>
-            <a href="cadastro.html" class="btn btn-secondary" style="text-decoration: none; display: inline-block; margin: 5px;">
-                Página de Cadastro →
-            </a>
         </section>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-    <script src="session.js"></script>
-    <script src="config.js"></script>
-    <script src="access-control.js"></script>
-    <script src="reset-system.js"></script>
-    <script src="admin.js"></script>
+    <script src="js/session.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/access-control.js"></script>
+    <script src="js/admin.js"></script>
 </body>
 </html>
 

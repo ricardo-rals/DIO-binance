@@ -95,9 +95,25 @@ async function connectWallet() {
         }
 
         currentAccount = accounts[0];
+        // Tornar disponível globalmente para a API
+        window.currentAccount = currentAccount;
         
         provider = new ethers.providers.Web3Provider(window.ethereum);
         signer = provider.getSigner();
+
+        // Verificar conexão com a rede
+        try {
+            const network = await provider.getNetwork();
+            console.log('Rede conectada:', network);
+            
+            // Verificar se está na rede correta (Ganache = chainId 1337)
+            if (network.chainId !== 1337) {
+                console.warn('⚠️ Você não está conectado à rede Ganache (chainId 1337). ChainId atual:', network.chainId);
+            }
+        } catch (error) {
+            console.error('Erro ao verificar rede:', error);
+            throw new Error('Não foi possível conectar à rede. Certifique-se de que o Ganache está rodando.');
+        }
 
         // Verificar se os endereços estão configurados
         if (CONFIG.TOKEN_ADDRESS === "0x0000000000000000000000000000000000000000" ||
@@ -124,10 +140,31 @@ async function connectWallet() {
             signer
         );
         
-        // Verificar se tem permissão de minter
-        const isMinter = await tokenContract.authorizedMinters(currentAccount);
-        if (!isMinter) {
-            console.warn('⚠️ Conta não tem permissão de minter. Certifique-se de que a conta foi adicionada como minter no contrato DASIToken.');
+        // Verificar se os contratos existem (verificando código no endereço)
+        try {
+            const tokenCode = await provider.getCode(CONFIG.TOKEN_ADDRESS);
+            const daoCode = await provider.getCode(CONFIG.DAO_ADDRESS);
+            
+            if (tokenCode === '0x' || tokenCode === '0x0') {
+                throw new Error(`Contrato DASIToken não encontrado no endereço ${CONFIG.TOKEN_ADDRESS}. Faça o deploy novamente.`);
+            }
+            if (daoCode === '0x' || daoCode === '0x0') {
+                throw new Error(`Contrato DASIDAO não encontrado no endereço ${CONFIG.DAO_ADDRESS}. Faça o deploy novamente.`);
+            }
+        } catch (error) {
+            console.error('Erro ao verificar contratos:', error);
+            throw new Error('Não foi possível verificar os contratos. Certifique-se de que o Ganache está rodando e os contratos foram deployados.');
+        }
+        
+        // Verificar se tem permissão de minter (opcional, não crítico)
+        try {
+            const isMinter = await tokenContract.authorizedMinters(currentAccount);
+            if (!isMinter) {
+                console.warn('⚠️ Conta não tem permissão de minter. Certifique-se de que a conta foi adicionada como minter no contrato DASIToken.');
+            }
+        } catch (error) {
+            console.warn('⚠️ Não foi possível verificar permissão de minter:', error.message);
+            // Não bloqueia o fluxo, apenas avisa
         }
         
         console.log('Contratos inicializados:', {
@@ -145,6 +182,11 @@ async function connectWallet() {
         connectBtn.style.display = 'none';
         disconnectBtn.style.display = 'block';
         authSection.style.display = 'block';
+        
+        // Garantir que window.currentAccount está definido antes de fazer requisições
+        if (currentAccount && !window.currentAccount) {
+            window.currentAccount = currentAccount;
+        }
         
         // Carregar saldo
         await loadTokenBalance();
@@ -173,6 +215,7 @@ function disconnectWallet() {
     }
     
     currentAccount = null;
+    window.currentAccount = null;
     provider = null;
     signer = null;
     tokenContract = null;
@@ -205,15 +248,20 @@ async function loadTokenBalance() {
 async function checkAuthorization() {
     if (!currentAccount) return;
     
+    // Garantir que window.currentAccount está definido
+    if (currentAccount && !window.currentAccount) {
+        window.currentAccount = currentAccount;
+    }
+    
     // Inicializar sistema de controle de acesso
     if (window.AccessControl) {
         window.AccessControl.init();
     }
     
     const hasAdmin = window.AccessControl ? 
-        window.AccessControl.hasAdminAccess(currentAccount) : false;
+        await window.AccessControl.hasAdminAccess(currentAccount) : false;
     const isDeployer = window.AccessControl ? 
-        window.AccessControl.isDeployer(currentAccount) : false;
+        await window.AccessControl.isDeployer(currentAccount) : false;
     
     if (hasAdmin) {
         const role = isDeployer ? 'Deployer' : 'Owner/Diretor';
@@ -228,18 +276,19 @@ async function checkAuthorization() {
         dashboardSection.style.display = 'block';
         document.getElementById('approval-section').style.display = 'block';
         document.getElementById('proposal-approval-section').style.display = 'block';
+        document.getElementById('history-section').style.display = 'block';
         
-        // Apenas deployer pode gerenciar owners e ferramentas de dev
+        // Apenas deployer pode gerenciar owners e utilitários
         if (isDeployer) {
             document.getElementById('owners-section').style.display = 'block';
-            document.getElementById('dev-tools-section').style.display = 'block';
+            document.getElementById('utilities-section').style.display = 'block';
             await loadOwners();
-            setupDevTools();
         }
         
         await loadCadastros();
         await loadPendingCadastros();
         await loadPendingProposals();
+        await loadDistributionHistory();
     } else {
         authStatus.innerHTML = `
             <div style="background: #fed7d7; padding: 15px; border-radius: 8px; border-left: 4px solid #f56565;">
@@ -257,36 +306,45 @@ async function checkAuthorization() {
 }
 
 // Obter cadastros do localStorage (usando AccessControl se disponível)
-function getCadastros() {
-    if (window.AccessControl) {
-        return window.AccessControl.getCadastros();
+async function getCadastros() {
+    if (!window.APIClient) {
+        throw new Error('API não disponível. Por favor, inicie o servidor backend (npm run backend)');
     }
+    
+    // Garantir que window.currentAccount está definido
+    if (currentAccount && !window.currentAccount) {
+        window.currentAccount = currentAccount;
+    }
+    
+    if (!currentAccount && !window.currentAccount) {
+        throw new Error('Carteira não conectada. Por favor, conecte sua carteira primeiro.');
+    }
+    
     try {
-        const cadastrosStr = localStorage.getItem('dasi_cadastros');
-        return cadastrosStr ? JSON.parse(cadastrosStr) : [];
+        const result = await window.APIClient.getCadastros();
+        // Garantir que é um array
+        return Array.isArray(result) ? result : [];
     } catch (error) {
-        console.error('Erro ao ler cadastros:', error);
-        return [];
+        console.error('Erro ao obter cadastros via API:', error);
+        
+        // Se o erro for sobre endereço não fornecido, dar uma mensagem mais clara
+        if (error.message && error.message.includes('Endereço')) {
+            throw new Error('Erro: Carteira não conectada ou endereço não disponível. Por favor, conecte sua carteira novamente.');
+        }
+        
+        throw new Error(`Erro ao conectar com a API: ${error.message}. Verifique se o servidor backend está rodando.`);
     }
 }
 
-// Salvar cadastros (usando AccessControl se disponível)
+// Salvar cadastros (não usado mais - dados são salvos via API)
 function saveCadastros(cadastrosArray) {
-    if (window.AccessControl) {
-        window.AccessControl.saveCadastros(cadastrosArray);
-        return;
-    }
-    try {
-        localStorage.setItem('dasi_cadastros', JSON.stringify(cadastrosArray));
-    } catch (error) {
-        console.error('Erro ao salvar cadastros:', error);
-        throw error;
-    }
+    console.warn('saveCadastros não deve ser usado. Use a API diretamente.');
+    // Esta função é mantida apenas para compatibilidade, mas não faz nada
 }
 
 // Carregar cadastros
 async function loadCadastros() {
-    cadastros = getCadastros();
+    cadastros = await getCadastros();
     updateStats();
     renderCadastros();
 }
@@ -377,6 +435,9 @@ function renderCadastros() {
                             `| Tokens distribuídos em: ${new Date(cadastro.dataDistribuicao).toLocaleString('pt-BR')}` : 
                             ''
                         }
+                        ${cadastro.totalTokens ? 
+                            `| Total de tokens: <strong style="color: #667eea;">${parseFloat(cadastro.totalTokens).toFixed(1)} DASI</strong>` : 
+                            ''}
                     </p>
                 </div>
             </div>
@@ -440,7 +501,15 @@ distributeBtn.addEventListener('click', async () => {
         return;
     }
     
-    if (!confirm(`Deseja distribuir 1 token para cada um dos ${selectedCadastros.size} estudante(s) selecionado(s)?`)) {
+    const tokenAmountInput = document.getElementById('token-amount');
+    const tokenAmount = parseFloat(tokenAmountInput.value);
+    
+    if (isNaN(tokenAmount) || tokenAmount <= 0) {
+        alert('Por favor, insira uma quantidade válida de tokens');
+        return;
+    }
+    
+    if (!confirm(`Deseja distribuir ${tokenAmount} token(s) DASI para cada um dos ${selectedCadastros.size} estudante(s) selecionado(s)?\n\nTotal: ${(tokenAmount * selectedCadastros.size).toFixed(1)} tokens`)) {
         return;
     }
     
@@ -454,12 +523,27 @@ distributeBtn.addEventListener('click', async () => {
         distributeBtn.textContent = 'Distribuindo...';
         distributionStatus.innerHTML = '<p style="color: #667eea;">⏳ Preparando distribuição...</p>';
         
+        // Obter quantidade de tokens
+        const tokenAmountInput = document.getElementById('token-amount');
+        const tokenAmount = parseFloat(tokenAmountInput.value);
+        
+        if (isNaN(tokenAmount) || tokenAmount <= 0) {
+            throw new Error('Por favor, insira uma quantidade válida de tokens (maior que 0)');
+        }
+        
         // Obter endereços selecionados
         const enderecos = Array.from(selectedCadastros);
-        const amounts = enderecos.map(() => ethers.utils.parseEther('1'));
+        const amounts = enderecos.map(() => ethers.utils.parseEther(tokenAmount.toString()));
         
         // Verificar se tem permissão de minter
-        const isMinter = await tokenContract.authorizedMinters(currentAccount);
+        let isMinter = false;
+        try {
+            isMinter = await tokenContract.authorizedMinters(currentAccount);
+        } catch (error) {
+            console.error('Erro ao verificar permissão de minter:', error);
+            throw new Error('Não foi possível verificar permissão de minter. Verifique se os contratos estão deployados corretamente.');
+        }
+        
         if (!isMinter) {
             throw new Error('Sua conta não tem permissão para mintear tokens. Entre em contato com o administrador do sistema.');
         }
@@ -472,24 +556,66 @@ distributeBtn.addEventListener('click', async () => {
         
         await tx.wait();
         
-        // Atualizar cadastros
-        cadastros.forEach(cadastro => {
-            if (selectedCadastros.has(cadastro.endereco)) {
-                cadastro.tokensDistribuidos = true;
-                cadastro.dataDistribuicao = Date.now();
+        // Atualizar tokens via API ou localStorage
+        const distributionRecords = [];
+        for (const endereco of enderecos) {
+            const cadastro = cadastros.find(c => 
+                (c.endereco?.toLowerCase() === endereco.toLowerCase()) ||
+                (c.address?.toLowerCase() === endereco.toLowerCase())
+            );
+            
+            if (cadastro) {
+                // Atualizar via API (obrigatório)
+                if (!window.APIClient) {
+                    throw new Error('API não disponível. Por favor, inicie o servidor backend (npm run backend)');
+                }
+                
+                try {
+                    await window.APIClient.updateTokens(endereco, tokenAmount.toString());
+                } catch (error) {
+                    console.error('Erro ao atualizar tokens via API:', error);
+                    throw new Error(`Erro ao atualizar tokens: ${error.message}`);
+                }
+                
+                // Registrar no histórico (SEM dados pessoais)
+                const record = {
+                    id: cadastro.id || endereco,
+                    address: endereco,
+                    amount: tokenAmount.toString(),
+                    type: 'manual',
+                    timestamp: new Date().toISOString()
+                };
+                
+                try {
+                    await window.APIClient.addHistoryRecord(record);
+                } catch (error) {
+                    console.error('Erro ao salvar histórico via API:', error);
+                    // Não bloquear a distribuição se o histórico falhar
+                }
             }
-        });
+        }
         
-        saveCadastros(cadastros);
+        // Salvar cadastros se não estiver usando API
+        if (!window.APIClient) {
+            saveCadastros(cadastros);
+            distributionRecords.forEach(record => {
+                saveDistributionHistory(record);
+            });
+        }
         
         distributionStatus.innerHTML = `
             <div style="background: #c6f6d5; padding: 15px; border-radius: 8px; border-left: 4px solid #48bb78;">
                 <h3 style="color: #22543d; margin: 0;">✅ Tokens distribuídos com sucesso!</h3>
                 <p style="color: #22543d; margin: 5px 0 0 0;">
-                    ${selectedCadastros.size} token(s) distribuído(s).
+                    ${tokenAmount} token(s) DASI distribuído(s) para ${selectedCadastros.size} estudante(s).
                 </p>
             </div>
         `;
+        
+        // Recarregar histórico se estiver visível
+        if (document.getElementById('history-section') && document.getElementById('history-section').style.display !== 'none') {
+            loadDistributionHistory();
+        }
         
         // Limpar seleção
         selectedCadastros.clear();
@@ -515,7 +641,35 @@ distributeBtn.addEventListener('click', async () => {
 
 // Carregar cadastros pendentes de aprovação
 async function loadPendingCadastros() {
-    const cadastros = getCadastros();
+    let cadastros = [];
+    
+    try {
+        // Tentar usar API se disponível
+        if (window.APIClient && currentAccount) {
+            cadastros = await window.APIClient.getPendingCadastros();
+        } else {
+            // Se não tiver API, buscar todos e filtrar
+            cadastros = await getCadastros();
+        }
+    } catch (error) {
+        console.error('Erro ao carregar cadastros pendentes:', error);
+        const container = document.getElementById('pending-cadastros-container');
+        if (container) {
+            container.innerHTML = `
+                <div style="background: #fed7d7; padding: 15px; border-radius: 8px; border-left: 4px solid #f56565;">
+                    <h3 style="color: #742a2a; margin: 0;">❌ Erro ao carregar cadastros</h3>
+                    <p style="color: #742a2a; margin: 5px 0 0 0;">${error.message}</p>
+                </div>
+            `;
+        }
+        return;
+    }
+    
+    // Garantir que é um array
+    if (!Array.isArray(cadastros)) {
+        cadastros = [];
+    }
+    
     const pending = cadastros.filter(c => c.status === 'pendente');
     const approved = cadastros.filter(c => c.status === 'aprovado');
     const rejected = cadastros.filter(c => c.status === 'rejeitado');
@@ -542,14 +696,14 @@ async function loadPendingCadastros() {
                     <h4 style="margin: 0 0 10px 0; color: #856404;">${cadastro.nome}</h4>
                     <p style="margin: 5px 0; color: #856404;"><strong>Matrícula:</strong> ${cadastro.matricula}</p>
                     <p style="margin: 5px 0; color: #856404;"><strong>Email:</strong> ${cadastro.email || 'Não informado'}</p>
-                    <p style="margin: 5px 0; color: #856404; font-family: monospace; font-size: 0.9em;"><strong>Endereço:</strong> ${cadastro.endereco}</p>
+                    <p style="margin: 5px 0; color: #856404; font-family: monospace; font-size: 0.9em;"><strong>Endereço:</strong> ${cadastro.endereco || cadastro.address || 'N/A'}</p>
                     <p style="margin: 5px 0; color: #856404; font-size: 0.9em;"><strong>Cadastrado em:</strong> ${new Date(cadastro.timestamp).toLocaleString('pt-BR')}</p>
                 </div>
                 <div style="display: flex; gap: 10px;">
-                    <button class="btn btn-success approve-btn" data-endereco="${cadastro.endereco}">
+                    <button class="btn btn-success approve-btn" data-endereco="${cadastro.endereco || cadastro.address}">
                         ✅ Aprovar
                     </button>
-                    <button class="btn btn-danger reject-btn" data-endereco="${cadastro.endereco}">
+                    <button class="btn btn-danger reject-btn" data-endereco="${cadastro.endereco || cadastro.address}">
                         ❌ Rejeitar
                     </button>
                 </div>
@@ -582,13 +736,86 @@ async function approveCadastro(endereco) {
         return;
     }
     
+    if (!tokenContract) {
+        alert('Conecte sua carteira primeiro!');
+        return;
+    }
+    
     try {
-        window.AccessControl.approveCadastro(endereco, currentAccount);
-        alert('Cadastro aprovado com sucesso!');
+        // Verificar se tem permissão de minter
+        let isMinter = false;
+        try {
+            isMinter = await tokenContract.authorizedMinters(currentAccount);
+        } catch (error) {
+            console.error('Erro ao verificar permissão de minter:', error);
+            throw new Error('Não foi possível verificar permissão de minter. Verifique se os contratos estão deployados corretamente.');
+        }
+        
+        if (!isMinter) {
+            throw new Error('Sua conta não tem permissão para mintear tokens. Entre em contato com o administrador do sistema.');
+        }
+        
+        // Obter dados do cadastro antes de aprovar
+        const cadastros = await getCadastros();
+        const cadastro = cadastros.find(c => 
+            c.endereco?.toLowerCase() === endereco.toLowerCase() || 
+            c.address?.toLowerCase() === endereco.toLowerCase()
+        );
+        
+        if (!cadastro) {
+            throw new Error('Cadastro não encontrado');
+        }
+        
+        // Aprovar cadastro (via API ou AccessControl)
+        if (window.APIClient) {
+            await window.APIClient.approveCadastro(endereco);
+        } else if (window.AccessControl) {
+            await window.AccessControl.approveCadastro(endereco, currentAccount);
+        } else {
+            throw new Error('Sistema de controle de acesso não disponível');
+        }
+        
+        // Mintear 1 token automaticamente para o usuário aprovado
+        const amount = ethers.utils.parseEther('1');
+        const tx = await tokenContract.mint(endereco, amount);
+        await tx.wait();
+        
+        // Atualizar tokens via API
+        if (window.APIClient) {
+            await window.APIClient.updateTokens(endereco, '1');
+        }
+        
+        // Registrar no histórico (sem dados pessoais)
+        const cadastroId = cadastro.id || cadastro.address;
+        if (window.APIClient) {
+            await window.APIClient.addHistoryRecord({
+                id: cadastroId,
+                address: endereco,
+                amount: '1',
+                type: 'approval'
+            });
+        } else {
+            saveDistributionHistory({
+                type: 'approval',
+                id: cadastroId,
+                recipient: endereco,
+                amount: '1',
+                timestamp: new Date().toISOString(),
+                admin: currentAccount
+            });
+        }
+        
+        alert('Cadastro aprovado e 1 token DASI distribuído automaticamente!');
         await loadPendingCadastros();
         await loadCadastros();
         updateStats();
+        
+        // Recarregar histórico se estiver visível
+        if (document.getElementById('history-section') && document.getElementById('history-section').style.display !== 'none') {
+            loadDistributionHistory();
+        }
     } catch (error) {
+        console.error('Erro ao aprovar cadastro:', error);
         alert('Erro ao aprovar cadastro: ' + error.message);
     }
 }
@@ -613,49 +840,85 @@ async function rejectCadastro(endereco, motivo) {
 
 // Carregar owners
 async function loadOwners() {
-    if (!window.AccessControl) return;
-    
-    const deployer = window.AccessControl.getDeployer();
-    const owners = window.AccessControl.getOwners();
-    
     const container = document.getElementById('owners-list');
+    if (!container) return;
     
-    let html = `
-        <div style="margin-bottom: 15px;">
-            <strong>Deployer:</strong>
-            <div style="background: white; padding: 10px; border-radius: 5px; margin-top: 5px; font-family: monospace;">
-                ${deployer}
-            </div>
-        </div>
-    `;
-    
-    if (owners.length > 0) {
-        html += '<div><strong>Owners/Diretores:</strong></div>';
-        owners.forEach((owner, index) => {
+    try {
+        // Obter deployer e owners via API
+        let deployer = null;
+        let owners = [];
+        
+        if (window.APIClient && currentAccount) {
+            try {
+                deployer = await window.APIClient.getDeployer();
+                owners = await window.APIClient.getOwners();
+                // Garantir que owners é um array
+                if (!Array.isArray(owners)) {
+                    owners = [];
+                }
+            } catch (error) {
+                console.error('Erro ao obter owners/deployer via API:', error);
+                // Fallback para AccessControl se API falhar
+                if (window.AccessControl) {
+                    deployer = await window.AccessControl.getDeployer();
+                    owners = await window.AccessControl.getOwners();
+                }
+            }
+        } else if (window.AccessControl) {
+            // Fallback se não tiver API
+            deployer = await window.AccessControl.getDeployer();
+            owners = await window.AccessControl.getOwners();
+        }
+        
+        let html = '';
+        
+        if (deployer) {
             html += `
-                <div style="background: white; padding: 10px; border-radius: 5px; margin-top: 5px; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-family: monospace;">${owner}</span>
-                    <button class="btn btn-danger remove-owner-btn" data-owner="${owner}" style="padding: 5px 15px; font-size: 0.9em;">
-                        Remover
-                    </button>
+                <div style="margin-bottom: 15px;">
+                    <strong>Deployer:</strong>
+                    <div style="background: white; padding: 10px; border-radius: 5px; margin-top: 5px; font-family: monospace;">
+                        ${deployer}
+                    </div>
                 </div>
             `;
+        }
+        
+        if (owners.length > 0) {
+            html += '<div style="margin-top: 15px;"><strong>Owners/Diretores:</strong></div>';
+            owners.forEach((owner, index) => {
+                html += `
+                    <div style="background: white; padding: 10px; border-radius: 5px; margin-top: 5px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-family: monospace;">${owner}</span>
+                        <button class="btn btn-danger remove-owner-btn" data-owner="${owner}" style="padding: 5px 15px; font-size: 0.9em;">
+                            Remover
+                        </button>
+                    </div>
+                `;
+            });
+        } else {
+            html += '<p style="color: #718096; margin-top: 15px;">Nenhum owner adicionado ainda.</p>';
+        }
+        
+        container.innerHTML = html || '<p class="loading">Carregando...</p>';
+        
+        // Adicionar listeners aos botões de remover
+        document.querySelectorAll('.remove-owner-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const owner = btn.dataset.owner;
+                if (confirm(`Tem certeza que deseja remover o owner ${owner}?`)) {
+                    await removeOwner(owner);
+                }
+            });
         });
-    } else {
-        html += '<p style="color: #718096;">Nenhum owner adicionado ainda.</p>';
+    } catch (error) {
+        console.error('Erro ao carregar owners:', error);
+        container.innerHTML = `
+            <div style="background: #fed7d7; padding: 15px; border-radius: 8px; border-left: 4px solid #f56565;">
+                <h3 style="color: #742a2a; margin: 0;">❌ Erro ao carregar owners</h3>
+                <p style="color: #742a2a; margin: 5px 0 0 0;">${error.message}</p>
+            </div>
+        `;
     }
-    
-    container.innerHTML = html;
-    
-    // Adicionar listeners aos botões de remover
-    document.querySelectorAll('.remove-owner-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const owner = btn.dataset.owner;
-            if (confirm(`Tem certeza que deseja remover o owner ${owner}?`)) {
-                await removeOwner(owner);
-            }
-        });
-    });
 }
 
 // Adicionar owner
@@ -708,32 +971,6 @@ async function removeOwner(ownerAddress) {
     }
 }
 
-// Configurar ferramentas de desenvolvimento
-function setupDevTools() {
-    const resetCadastrosBtn = document.getElementById('reset-cadastros-btn');
-    const resetSystemBtn = document.getElementById('reset-system-btn');
-    const statusDiv = document.getElementById('reset-status');
-    
-    if (resetCadastrosBtn) {
-        resetCadastrosBtn.addEventListener('click', () => {
-            if (window.resetCadastros) {
-                window.resetCadastros();
-            } else {
-                alert('Função de reset não disponível. Recarregue a página.');
-            }
-        });
-    }
-    
-    if (resetSystemBtn) {
-        resetSystemBtn.addEventListener('click', () => {
-            if (window.resetSystem) {
-                window.resetSystem();
-            } else {
-                alert('Função de reset não disponível. Recarregue a página.');
-            }
-        });
-    }
-}
 
 // Adicionar listener ao botão de adicionar owner
 document.addEventListener('DOMContentLoaded', () => {
@@ -741,7 +978,90 @@ document.addEventListener('DOMContentLoaded', () => {
     if (addOwnerBtn) {
         addOwnerBtn.addEventListener('click', addOwner);
     }
+    
+    // Listener para botão de resetar banco de dados
+    const resetDatabaseBtn = document.getElementById('reset-database-btn');
+    if (resetDatabaseBtn) {
+        resetDatabaseBtn.addEventListener('click', resetDatabase);
+    }
 });
+
+// Resetar banco de dados
+async function resetDatabase() {
+    if (!currentAccount) {
+        alert('Conecte sua carteira primeiro!');
+        return;
+    }
+    
+    // Confirmação dupla por segurança
+    const confirm1 = confirm(
+        '⚠️ ATENÇÃO: Esta ação irá DELETAR PERMANENTEMENTE todos os dados do banco!\n\n' +
+        'Serão deletados:\n' +
+        '• Todos os cadastros de estudantes\n' +
+        '• Todos os mapeamentos de carteiras\n' +
+        '• Todo o histórico de distribuições\n\n' +
+        'Esta ação NÃO pode ser desfeita!\n\n' +
+        'Deseja continuar?'
+    );
+    
+    if (!confirm1) {
+        return;
+    }
+    
+    const confirm2 = confirm(
+        '🔴 ÚLTIMA CONFIRMAÇÃO 🔴\n\n' +
+        'Você tem CERTEZA ABSOLUTA que deseja limpar todo o banco de dados?\n\n' +
+        'Digite OK apenas se tiver certeza total!'
+    );
+    
+    if (!confirm2) {
+        return;
+    }
+    
+    const resetBtn = document.getElementById('reset-database-btn');
+    const statusDiv = document.getElementById('reset-database-status');
+    
+    try {
+        resetBtn.disabled = true;
+        resetBtn.textContent = '🗑️ Limpando...';
+        statusDiv.innerHTML = '<p style="color: #667eea;">⏳ Limpando banco de dados...</p>';
+        
+        if (!window.APIClient) {
+            throw new Error('API não disponível. Por favor, inicie o servidor backend (npm run backend)');
+        }
+        
+        const result = await window.APIClient.resetDatabase();
+        
+        statusDiv.innerHTML = `
+            <div style="background: #c6f6d5; padding: 15px; border-radius: 8px; border-left: 4px solid #48bb78;">
+                <h3 style="color: #22543d; margin: 0;">✅ ${result.message}</h3>
+                <p style="color: #22543d; margin: 5px 0 0 0;">
+                    Arquivos resetados: ${result.resetFiles.join(', ')}
+                </p>
+            </div>
+        `;
+        
+        resetBtn.textContent = '🗑️ Limpar Banco de Dados';
+        resetBtn.disabled = false;
+        
+        // Recarregar dados após reset
+        await loadCadastros();
+        await loadPendingCadastros();
+        await loadDistributionHistory();
+        updateStats();
+        
+    } catch (error) {
+        console.error('Erro ao resetar banco de dados:', error);
+        statusDiv.innerHTML = `
+            <div style="background: #fed7d7; padding: 15px; border-radius: 8px; border-left: 4px solid #f56565;">
+                <h3 style="color: #742a2a; margin: 0;">❌ Erro ao resetar banco de dados</h3>
+                <p style="color: #742a2a; margin: 5px 0 0 0;">${error.message}</p>
+            </div>
+        `;
+        resetBtn.textContent = '🗑️ Limpar Banco de Dados';
+        resetBtn.disabled = false;
+    }
+}
 
 // Carregar propostas pendentes de aprovação
 async function loadPendingProposals() {
@@ -931,9 +1251,131 @@ async function rejectProposal(proposalId) {
     }
 }
 
+// ==================== HISTÓRICO DE DISTRIBUIÇÕES ====================
+
+// Salvar registro no histórico
+function saveDistributionHistory(record) {
+    try {
+        const history = getDistributionHistory();
+        history.unshift(record); // Adicionar no início
+        // Manter apenas os últimos 1000 registros
+        if (history.length > 1000) {
+            history.splice(1000);
+        }
+        localStorage.setItem('dasi_distribution_history', JSON.stringify(history));
+    } catch (error) {
+        console.error('Erro ao salvar histórico:', error);
+    }
+}
+
+// Obter histórico completo
+function getDistributionHistory() {
+    try {
+        const historyStr = localStorage.getItem('dasi_distribution_history');
+        return historyStr ? JSON.parse(historyStr) : [];
+    } catch (error) {
+        console.error('Erro ao ler histórico:', error);
+        return [];
+    }
+}
+
+// Carregar e renderizar histórico
+async function loadDistributionHistory() {
+    const container = document.getElementById('history-container');
+    if (!container) return;
+    
+    if (!window.APIClient || !currentAccount) {
+        container.innerHTML = `
+            <div style="background: #fed7d7; padding: 15px; border-radius: 8px; border-left: 4px solid #f56565;">
+                <h3 style="color: #742a2a; margin: 0;">❌ API não disponível</h3>
+                <p style="color: #742a2a; margin: 5px 0 0 0;">Por favor, inicie o servidor backend (npm run backend)</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let history = [];
+    
+    try {
+        const filter = document.querySelector('input[name="history-filter"]:checked')?.value || 'all';
+        history = await window.APIClient.getHistory(filter);
+        
+        if (!Array.isArray(history)) {
+            history = [];
+        }
+    } catch (error) {
+        console.error('Erro ao obter histórico via API:', error);
+        container.innerHTML = `
+            <div style="background: #fed7d7; padding: 15px; border-radius: 8px; border-left: 4px solid #f56565;">
+                <h3 style="color: #742a2a; margin: 0;">❌ Erro ao carregar histórico</h3>
+                <p style="color: #742a2a; margin: 5px 0 0 0;">${error.message}</p>
+            </div>
+        `;
+        return;
+    }
+    
+    if (history.length === 0) {
+        container.innerHTML = '<p class="loading">Nenhuma distribuição registrada ainda.</p>';
+        return;
+    }
+    
+    // Aplicar filtro (já vem filtrado da API, mas garantir)
+    const filter = document.querySelector('input[name="history-filter"]:checked')?.value || 'all';
+    let filtered = history;
+    
+    // Se por algum motivo o filtro não foi aplicado na API, aplicar aqui
+    if (filter !== 'all') {
+        filtered = history.filter(h => h.type === filter);
+    }
+    
+    if (filtered.length === 0) {
+        container.innerHTML = '<p class="loading">Nenhum registro encontrado para este filtro.</p>';
+        return;
+    }
+    
+    // Renderizar histórico SEM dados pessoais (apenas endereço e ID)
+    container.innerHTML = filtered.map(record => {
+        const date = new Date(record.timestamp);
+        const dateStr = date.toLocaleString('pt-BR');
+        const typeLabel = record.type === 'approval' ? 'Aprovação' : 'Distribuição Manual';
+        const typeIcon = record.type === 'approval' ? '✅' : '💰';
+        const address = record.address || record.recipient || 'N/A';
+        const addressShort = address !== 'N/A' ? `${address.substring(0, 6)}...${address.substring(38)}` : 'N/A';
+        const recordId = record.id ? `ID: ${record.id.substring(0, 8)}...` : '';
+        
+        return `
+            <div style="padding: 15px; margin-bottom: 10px; background: #f7fafc; border-radius: 8px; border-left: 4px solid ${record.type === 'approval' ? '#48bb78' : '#667eea'};">
+                <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold; margin-bottom: 5px;">
+                            ${typeIcon} ${typeLabel}
+                        </div>
+                        <div style="color: #718096; font-size: 0.9em; margin-bottom: 5px; font-family: monospace;">
+                            ${addressShort}
+                        </div>
+                        ${recordId ? `<div style="color: #a0aec0; font-size: 0.8em; margin-bottom: 5px;">${recordId}</div>` : ''}
+                        <div style="color: #667eea; font-weight: bold; font-size: 1.1em;">
+                            ${record.amount} DASI
+                        </div>
+                    </div>
+                    <div style="text-align: right; color: #718096; font-size: 0.85em;">
+                        ${dateStr}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Filtrar histórico
+window.filterHistory = function() {
+    loadDistributionHistory();
+}
+
 // Exportar funções globalmente
 window.approveProposal = approveProposal;
 window.rejectProposal = rejectProposal;
+window.filterHistory = filterHistory;
 
 // Detectar mudança de conta
 if (typeof window.ethereum !== 'undefined') {

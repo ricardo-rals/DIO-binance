@@ -3,8 +3,8 @@
 
 const CONFIG = {
     // Endereços dos contratos (atualizados após deploy)
-    TOKEN_ADDRESS: "0x67eC759C65327793E1bC9041b78b9996fD46AABb", // DASIToken
-    DAO_ADDRESS: "0x6149170F44814873bD0387f88f24E9DDFAC9FD90", // DASIDAO
+    TOKEN_ADDRESS: "0x5F3fD09450e0e0b7e60220e8a9BF23b2b8D624aC", // DASIToken
+    DAO_ADDRESS: "0x1571A1B2502E073152BAA003aAF77A256C8Ed1f3", // DASIDAO
     
     // Controle de Acesso
     DEPLOYER_ADDRESS: "0xF3cA79A01452E14C2790A8298D16dfade24ade8d", // Endereço do deployer (acesso total)
