@@ -5,17 +5,17 @@ Sistema completo de DAO (Decentralized Autonomous Organization) para governança
 ## 📹 Vídeo Demonstrativo
 
 <div align="center">
-  <a href="https://youtu.be/DJwjqeUk5T8">
+  <a href="https://youtu.be/DJwjqeUk5T8" target="_blank">
     <img 
       src="https://github.com/user-attachments/assets/998f1def-2318-4085-8d7a-92fa90492b6d" 
       alt="Capa Personalizada do Vídeo Demonstrativo - DASI Gov" 
-      style="width:100%;max-width:500px;">
+      style="width:100%;max-width:640px;">
   </a>
   
-  <p><strong>🎥 Clique na imagem acima para assistir ao vídeo demonstrativo completo</strong></p>
+  <p><strong>🎥 Clique na imagem acima para assistir ao vídeo demonstrativo completo (Abrirá em uma nova aba)</strong></p>
   
   <p>
-    <a href="https://youtu.be/DJwjqeUk5T8" _blank>
+    <a href="https://youtu.be/DJwjqeUk5T8" target="_blank">
       <img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Assistir no YouTube">
     </a>
   </p>
